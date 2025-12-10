@@ -222,7 +222,6 @@ export const createAntigravityPlugin = (providerId: string) => async (
         label: "OAuth with Google (Antigravity)",
         type: "oauth",
         authorize: async () => {
-          console.log("\n=== Google Antigravity OAuth Setup ===");
 
           const isHeadless = !!(
             process.env.SSH_CONNECTION ||
@@ -252,7 +251,6 @@ export const createAntigravityPlugin = (providerId: string) => async (
               } else {
                 exec(`xdg-open "${authorization.url}"`);
               }
-              console.log("Opening your browser to authenticate...");
             } catch (e) {
               console.log("Could not open browser automatically. Please Copy/Paste the URL below.");
             }
@@ -260,8 +258,6 @@ export const createAntigravityPlugin = (providerId: string) => async (
 
           if (listener) {
              const { host } = new URL(ANTIGRAVITY_REDIRECT_URI);
-             console.log(`1. We'll automatically capture the browser redirect on http://${host}.`);
-             console.log("2. Once you see the 'Authentication complete' page in your browser, return to this terminal.\n");
              
             return {
               url: authorization.url,
@@ -299,9 +295,6 @@ export const createAntigravityPlugin = (providerId: string) => async (
               },
             };
           }
-
-          console.log("1. Visit the URL below to sign in.");
-          console.log("2. Copy the full redirected URL (localhost) and paste it back here.\n");
 
           return {
             url: authorization.url,

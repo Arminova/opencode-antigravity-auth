@@ -58,6 +58,11 @@ export const ANTIGRAVITY_LOAD_ENDPOINTS = [
  */
 export const ANTIGRAVITY_ENDPOINT = ANTIGRAVITY_ENDPOINT_DAILY;
 
+/**
+ * Hardcoded project id used when Antigravity does not return one (e.g., business/workspace accounts).
+ */
+export const ANTIGRAVITY_DEFAULT_PROJECT_ID = "rising-fact-p41fc";
+
 export const ANTIGRAVITY_HEADERS = {
   "User-Agent": "antigravity/1.11.5 windows/amd64",
   "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",

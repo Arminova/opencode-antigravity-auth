@@ -2,7 +2,7 @@ import {
   ANTIGRAVITY_HEADERS,
   ANTIGRAVITY_ENDPOINT_FALLBACKS,
   ANTIGRAVITY_LOAD_ENDPOINTS,
-  ANTIGRAVITY_PROVIDER_ID,
+  ANTIGRAVITY_DEFAULT_PROJECT_ID,
 } from "../constants";
 import { formatRefreshParts, parseRefreshParts } from "./auth";
 import type {
@@ -275,16 +275,14 @@ export async function ensureProjectContext(
       return { auth, effectiveProjectId: parts.managedProjectId };
     }
 
-    const loadPayload = await loadManagedProject(accessToken, parts.projectId);
-    const resolvedManagedProjectId = extractManagedProjectId(loadPayload);
-
-    if (resolvedManagedProjectId) {
+    const fallbackProjectId = ANTIGRAVITY_DEFAULT_PROJECT_ID;
+    const persistManagedProject = async (managedProjectId: string): Promise<ProjectContextResult> => {
       const updatedAuth: OAuthAuthDetails = {
         ...auth,
         refresh: formatRefreshParts({
           refreshToken: parts.refreshToken,
           projectId: parts.projectId,
-          managedProjectId: resolvedManagedProjectId,
+          managedProjectId,
         }),
       };
 
@@ -293,49 +291,23 @@ export async function ensureProjectContext(
         body: updatedAuth,
       });
 
-      return { auth: updatedAuth, effectiveProjectId: resolvedManagedProjectId };
+      return { auth: updatedAuth, effectiveProjectId: managedProjectId };
+    };
+
+    // Try to resolve a managed project from Antigravity if possible.
+    const loadPayload = await loadManagedProject(accessToken, parts.projectId ?? fallbackProjectId);
+    const resolvedManagedProjectId = extractManagedProjectId(loadPayload);
+
+    if (resolvedManagedProjectId) {
+      return persistManagedProject(resolvedManagedProjectId);
     }
 
     if (parts.projectId) {
       return { auth, effectiveProjectId: parts.projectId };
     }
 
-    if (!loadPayload) {
-      throw new ProjectIdRequiredError();
-    }
-
-    const currentTierId = loadPayload.currentTier?.id ?? undefined;
-    if (currentTierId && currentTierId !== "FREE") {
-      throw new ProjectIdRequiredError();
-    }
-
-    const defaultTierId = getDefaultTierId(loadPayload.allowedTiers);
-    const tierId = defaultTierId ?? "FREE";
-
-    if (tierId !== "FREE") {
-      throw new ProjectIdRequiredError();
-    }
-
-    const onboardedProjectId = await onboardManagedProject(accessToken, tierId, parts.projectId);
-    if (onboardedProjectId) {
-      const updatedAuth: OAuthAuthDetails = {
-        ...auth,
-        refresh: formatRefreshParts({
-          refreshToken: parts.refreshToken,
-          projectId: parts.projectId,
-          managedProjectId: onboardedProjectId,
-        }),
-      };
-
-      await client.auth.set({
-        path: { id: providerId },
-        body: updatedAuth,
-      });
-
-      return { auth: updatedAuth, effectiveProjectId: onboardedProjectId };
-    }
-
-    throw new ProjectIdRequiredError();
+    // No project id present in auth; fall back to the hardcoded id for requests.
+    return { auth, effectiveProjectId: fallbackProjectId };
   };
 
   if (!cacheKey) {
