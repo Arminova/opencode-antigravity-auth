@@ -3,6 +3,7 @@ import {
   ANTIGRAVITY_HEADERS,
   GEMINI_CLI_HEADERS,
   ANTIGRAVITY_ENDPOINT,
+  GEMINI_CLI_ENDPOINT,
   type HeaderStyle,
 } from "../constants";
 import { cacheSignature, getCachedSignature } from "./cache";
@@ -799,7 +800,8 @@ export function prepareAntigravityRequest(
   const effectiveModel = resolved.actualModel;
 
   const streaming = rawAction === STREAM_ACTION;
-  const baseEndpoint = endpointOverride ?? ANTIGRAVITY_ENDPOINT;
+  const defaultEndpoint = headerStyle === "gemini-cli" ? GEMINI_CLI_ENDPOINT : ANTIGRAVITY_ENDPOINT;
+  const baseEndpoint = endpointOverride ?? defaultEndpoint;
   const transformedUrl = `${baseEndpoint}/v1internal:${rawAction}${streaming ? "?alt=sse" : ""}`;
   const isClaude = isClaudeModel(effectiveModel);
   const isClaudeThinking = isClaudeThinkingModel(effectiveModel);

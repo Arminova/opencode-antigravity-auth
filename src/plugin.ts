@@ -23,6 +23,7 @@ import {
   prepareAntigravityRequest,
   transformAntigravityResponse,
 } from "./plugin/request";
+import { resolveModelWithTier } from "./plugin/transform/model-resolver";
 import {
   isEmptyResponseBody,
 } from "./plugin/request-helpers";
@@ -916,35 +917,22 @@ export const createAntigravityPlugin = (providerId: string) => async (
               }
             };
 
-            // Try endpoint fallbacks with header style fallback for Gemini
+            // Try endpoint fallbacks with single header style based on model suffix
             let shouldSwitchAccount = false;
             
-            // For Gemini models, we can try both header styles (antigravity first, then gemini-cli)
-            // For Claude models, only antigravity headers work
-            const headerStyles: HeaderStyle[] = family === "gemini" 
-              ? ["antigravity", "gemini-cli"] 
-              : ["antigravity"];
+            // Determine header style from model suffix:
+            // - Models with :antigravity suffix -> use Antigravity quota
+            // - Models without suffix (default) -> use Gemini CLI quota
+            // - Claude models -> always use Antigravity
+            const headerStyle = getHeaderStyleFromUrl(urlString, family);
+            pushDebug(`headerStyle=${headerStyle} (from model suffix)`);
             
-            let currentHeaderStyleIndex = 0;
-            
-            // Find first non-rate-limited header style for this account
-            while (currentHeaderStyleIndex < headerStyles.length) {
-              const hs = headerStyles[currentHeaderStyleIndex];
-              if (hs && !accountManager.isRateLimitedForHeaderStyle(account, family, hs)) {
-                break;
-              }
-              currentHeaderStyleIndex++;
-            }
-            
-            // If all header styles are rate-limited for this account, switch account
-            if (currentHeaderStyleIndex >= headerStyles.length) {
+            // Check if this header style is rate-limited for this account
+            if (accountManager.isRateLimitedForHeaderStyle(account, family, headerStyle)) {
               shouldSwitchAccount = true;
             }
             
-            headerStyleLoop:
-            while (!shouldSwitchAccount && currentHeaderStyleIndex < headerStyles.length) {
-              const currentHeaderStyle = headerStyles[currentHeaderStyleIndex]!;
-              pushDebug(`headerStyle=${currentHeaderStyle}`);
+            while (!shouldSwitchAccount) {
             
             for (let i = 0; i < ANTIGRAVITY_ENDPOINT_FALLBACKS.length; i++) {
               const currentEndpoint = ANTIGRAVITY_ENDPOINT_FALLBACKS[i];
@@ -956,7 +944,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   accessToken,
                   projectContext.effectiveProjectId,
                   currentEndpoint,
-                  currentHeaderStyle,
+                  headerStyle,
                 );
 
                 // Show thinking recovery toast (respects quiet mode)
@@ -1023,7 +1011,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   await logResponseBody(debugContext, response, 429);
 
                   if (isCapacityExhausted) {
-                    accountManager.markRateLimited(account, delayMs, family, currentHeaderStyle);
+                    accountManager.markRateLimited(account, delayMs, family, headerStyle);
                     await showToast(
                       `Model capacity exhausted for ${family}. Retrying in ${waitTimeFormatted} (attempt ${attempt})...`,
                       "warning",
@@ -1043,7 +1031,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
 
 
                   // Mark this header style as rate-limited for this account
-                  accountManager.markRateLimited(account, delayMs, family, currentHeaderStyle);
+                  accountManager.markRateLimited(account, delayMs, family, headerStyle);
 
                   try {
                     await accountManager.saveToDisk();
@@ -1051,22 +1039,15 @@ export const createAntigravityPlugin = (providerId: string) => async (
                     log.error("Failed to persist rate-limit state", { error: String(error) });
                   }
 
-                  // For Gemini, try next header style before switching accounts
-                  if (family === "gemini" && currentHeaderStyleIndex < headerStyles.length - 1) {
-                    const nextHeaderStyle = headerStyles[currentHeaderStyleIndex + 1];
-                    await showToast(
-                      `Rate limited on ${currentHeaderStyle} quota. Trying ${nextHeaderStyle} quota...`,
-                      "warning",
-                    );
-                    currentHeaderStyleIndex++;
-                    continue headerStyleLoop;
-                  }
-
+                  // No auto-fallback: user controls quota via model suffix
+                  // Just show rate limit toast and switch accounts if available
+                  const quotaName = headerStyle === "antigravity" ? "Antigravity" : "Gemini CLI";
+                  
                   if (accountCount > 1) {
                     const quotaMsg = bodyInfo.quotaResetTime 
                       ? ` (quota resets ${bodyInfo.quotaResetTime})`
                       : ` (retry in ${waitTimeFormatted})`;
-                    await showToast(`Rate limited on ${accountLabel}${quotaMsg}. Switching...`, "warning");
+                    await showToast(`Rate limited on ${quotaName} quota for ${accountLabel}${quotaMsg}. Switching account...`, "warning");
                     
                     lastFailure = {
                       response,
@@ -1234,7 +1215,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
                 const { failures, shouldCooldown, cooldownMs } = trackAccountFailure(account.index);
                 lastError = error instanceof Error ? error : new Error(String(error));
                 if (shouldCooldown) {
-                  accountManager.markRateLimited(account, cooldownMs, family, currentHeaderStyle);
+                  accountManager.markRateLimited(account, cooldownMs, family, headerStyle);
                   pushDebug(`endpoint-error: cooldown ${cooldownMs}ms after ${failures} failures`);
                 }
                 shouldSwitchAccount = true;
@@ -1603,6 +1584,11 @@ function extractModelFromUrl(urlString: string): string | null {
   return match?.[1] ?? null;
 }
 
+function extractModelFromUrlWithSuffix(urlString: string): string | null {
+  const match = urlString.match(/\/models\/([^:\/\?]+)/);
+  return match?.[1] ?? null;
+}
+
 function getModelFamilyFromUrl(urlString: string): ModelFamily {
   const model = extractModelFromUrl(urlString);
   let family: ModelFamily = "gemini";
@@ -1613,4 +1599,16 @@ function getModelFamilyFromUrl(urlString: string): ModelFamily {
     logModelFamily(urlString, model, family);
   }
   return family;
+}
+
+function getHeaderStyleFromUrl(urlString: string, family: ModelFamily): HeaderStyle {
+  if (family === "claude") {
+    return "antigravity";
+  }
+  const modelWithSuffix = extractModelFromUrlWithSuffix(urlString);
+  if (!modelWithSuffix) {
+    return "gemini-cli";
+  }
+  const { quotaPreference } = resolveModelWithTier(modelWithSuffix);
+  return quotaPreference ?? "gemini-cli";
 }

@@ -59,6 +59,13 @@ export const ANTIGRAVITY_LOAD_ENDPOINTS = [
 export const ANTIGRAVITY_ENDPOINT = ANTIGRAVITY_ENDPOINT_DAILY;
 
 /**
+ * Gemini CLI endpoint (production).
+ * Used for models without :antigravity suffix.
+ * Same as opencode-gemini-auth's GEMINI_CODE_ASSIST_ENDPOINT.
+ */
+export const GEMINI_CLI_ENDPOINT = ANTIGRAVITY_ENDPOINT_PROD;
+
+/**
  * Hardcoded project id used when Antigravity does not return one (e.g., business/workspace accounts).
  */
 export const ANTIGRAVITY_DEFAULT_PROJECT_ID = "rising-fact-p41fc";
